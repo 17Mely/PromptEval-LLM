@@ -1,4 +1,4 @@
-import openai
+from openai import OpenAI
 import json
 import csv
 from textblob import TextBlob
@@ -7,7 +7,7 @@ import os
 
 # Load environment variables from .env file
 load_dotenv()
-openai.api_key = os.getenv("OPENAI_API_KEY")  # Safer than hardcoding
+client = OpenAI()  # Automatically picks up OPENAI_API_KEY from .env
 
 # Load prompt templates from prompts.json
 with open("prompts.json", "r") as f:
@@ -31,12 +31,12 @@ for idx, template in enumerate(prompt_templates):
     prompt = template.format(query=query)
 
     try:
-        response = openai.ChatCompletion.create(
+        response = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[{"role": "user", "content": prompt}],
             max_tokens=150
         )
-        reply = response.choices[0].message['content'].strip()
+        reply = response.choices[0].message.content.strip()
     except Exception as e:
         reply = f"Error: {e}"
 
