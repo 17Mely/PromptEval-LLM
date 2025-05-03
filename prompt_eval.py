@@ -1,36 +1,59 @@
 import openai
 import json
+import csv
 from textblob import TextBlob
+from dotenv import load_dotenv
+import os
 
-# Set your OpenAI API key
-openai.api_key = "your-api-key-here"
+# Load environment variables from .env file
+load_dotenv()
+openai.api_key = os.getenv("OPENAI_API_KEY")  # Safer than hardcoding
 
-# Load prompt templates
+# Load prompt templates from prompts.json
 with open("prompts.json", "r") as f:
     prompt_templates = json.load(f)
 
-# Define query to test
+# Take a chatbot query from the user
 query = input("Enter a chatbot query: ")
+
+# Function to score the response based on sentiment and length
+def score_response(response):
+    sentiment = TextBlob(response).sentiment.polarity
+    length_penalty = abs(len(response) - 200) / 200  # Ideal ~200 chars
+    final_score = sentiment - length_penalty
+    return sentiment, final_score
 
 # Store results
 results = []
 
-# Send each prompt to LLM
+# Loop through each prompt
 for idx, template in enumerate(prompt_templates):
     prompt = template.format(query=query)
 
-    response = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=150
-    )
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=150
+        )
+        reply = response.choices[0].message['content'].strip()
+    except Exception as e:
+        reply = f"Error: {e}"
 
-    reply = response.choices[0].message['content']
-    sentiment = TextBlob(reply).sentiment.polarity
+    sentiment, final_score = score_response(reply)
+    results.append((idx + 1, prompt, reply, sentiment, final_score))
 
-    results.append((idx+1, prompt, reply.strip(), sentiment))
-
-# Display results
+# Print results to terminal
 print("\n--- Prompt Evaluation Results ---\n")
 for res in results:
-    print(f"Prompt #{res[0]}:\n{res[1]}\nResponse: {res[2]}\nSentiment Score: {res[3]:.2f}\n{'-'*40}")
+    print(f"Prompt #{res[0]}:\n{res[1]}\n\nResponse:\n{res[2]}\nSentiment: {res[3]:.2f}, Score: {res[4]:.2f}")
+    print("-" * 50)
+
+# Save results to responses.csv
+with open("responses.csv", "w", newline='', encoding='utf-8') as csvfile:
+    writer = csv.writer(csvfile)
+    writer.writerow(["Prompt #", "Prompt", "Response", "Sentiment Score", "Final Score"])
+    for res in results:
+        writer.writerow(res)
+
+print("\n✅ All results saved to responses.csv")
