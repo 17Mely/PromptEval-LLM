@@ -1,0 +1,7 @@
+[
+    "You are a helpful assistant. Answer the following question:\n{query}",
+    "Give a concise and professional response to:\n{query}",
+    "Explain in a friendly and engaging tone:\n{query}",
+    "Break it down into 3 bullet points:\n{query}",
+    "As an expert, provide a clear answer to:\n{query}"
+]
