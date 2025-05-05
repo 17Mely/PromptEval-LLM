@@ -1,59 +1,62 @@
-from openai import OpenAI
 import json
-import csv
+import pandas as pd
+import requests
 from textblob import TextBlob
-from dotenv import load_dotenv
 import os
+from dotenv import load_dotenv
 
-# Load environment variables from .env file
+# Load your Hugging Face token from .env file
 load_dotenv()
-client = OpenAI()  # Automatically picks up OPENAI_API_KEY from .env
+HF_TOKEN = os.getenv("HUGGINGFACE_API_TOKEN")
 
-# Load prompt templates from prompts.json
+headers = {
+    "Authorization": f"Bearer {HF_TOKEN}"
+}
+
+# Load prompts
 with open("prompts.json", "r") as f:
-    prompt_templates = json.load(f)
+    prompts = json.load(f)
 
-# Take a chatbot query from the user
+# Input query
 query = input("Enter a chatbot query: ")
 
-# Function to score the response based on sentiment and length
-def score_response(response):
-    sentiment = TextBlob(response).sentiment.polarity
-    length_penalty = abs(len(response) - 200) / 200  # Ideal ~200 chars
-    final_score = sentiment - length_penalty
-    return sentiment, final_score
+# Use Hugging Face text generation model (FLAN-T5 or Bloom)
+API_URL = "https://api-inference.huggingface.co/models/google/flan-t5-base"
 
-# Store results
 results = []
 
-# Loop through each prompt
-for idx, template in enumerate(prompt_templates):
-    prompt = template.format(query=query)
+for idx, template in enumerate(prompts):
+    filled_prompt = template.format(query=query)
 
+    # Send request to HF Inference API
+    payload = {"inputs": filled_prompt}
     try:
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=150
-        )
-        reply = response.choices[0].message.content.strip()
+        response = requests.post(API_URL, headers=headers, json=payload)
+        result = response.json()
+        reply = result[0]["generated_text"].strip() if isinstance(result, list) else "Error: Invalid response"
     except Exception as e:
         reply = f"Error: {e}"
 
-    sentiment, final_score = score_response(reply)
-    results.append((idx + 1, prompt, reply, sentiment, final_score))
+    sentiment = TextBlob(reply).sentiment.polarity
+    length_penalty = abs(len(reply) - 200) / 200
+    final_score = sentiment - length_penalty
 
-# Print results to terminal
-print("\n--- Prompt Evaluation Results ---\n")
-for res in results:
-    print(f"Prompt #{res[0]}:\n{res[1]}\n\nResponse:\n{res[2]}\nSentiment: {res[3]:.2f}, Score: {res[4]:.2f}")
+    results.append({
+        "Prompt #": idx + 1,
+        "Prompt": filled_prompt,
+        "Response": reply,
+        "Sentiment Score": sentiment,
+        "Final Score": final_score
+    })
+
+# Print results
+for r in results:
+    print(f"\nPrompt #{r['Prompt #']}:\n{r['Prompt']}")
+    print(f"Response:\n{r['Response']}")
+    print(f"Sentiment: {r['Sentiment Score']:.2f}, Score: {r['Final Score']:.2f}")
     print("-" * 50)
 
-# Save results to responses.csv
-with open("responses.csv", "w", newline='', encoding='utf-8') as csvfile:
-    writer = csv.writer(csvfile)
-    writer.writerow(["Prompt #", "Prompt", "Response", "Sentiment Score", "Final Score"])
-    for res in results:
-        writer.writerow(res)
-
-print("\n✅ All results saved to responses.csv")
+# Save to CSV
+df = pd.DataFrame(results)
+df.to_csv("huggingface_responses.csv", index=False)
+print("\n✅ All results saved to huggingface_responses.csv")
