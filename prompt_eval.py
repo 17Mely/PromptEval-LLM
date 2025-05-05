@@ -4,6 +4,7 @@ import requests
 from textblob import TextBlob
 import os
 from dotenv import load_dotenv
+import streamlit as st
 
 # Load your Hugging Face token from .env file
 load_dotenv()
@@ -13,50 +14,66 @@ headers = {
     "Authorization": f"Bearer {HF_TOKEN}"
 }
 
-# Load prompts
+# Load prompts from JSON file
 with open("prompts.json", "r") as f:
     prompts = json.load(f)
 
-# Input query
-query = input("Enter a chatbot query: ")
+# Define the function to generate the best response
+def generate_best_response(query):
+    results = []
+    
+    for idx, template in enumerate(prompts):
+        filled_prompt = template.format(query=query)
+        payload = {"inputs": filled_prompt}
 
-# Use Hugging Face text generation model (FLAN-T5 or Bloom)
-API_URL = "https://api-inference.huggingface.co/models/google/flan-t5-base"
+        try:
+            response = requests.post("https://api-inference.huggingface.co/models/google/flan-t5-base", headers=headers, json=payload)
+            result = response.json()
+            reply = result[0]["generated_text"].strip() if isinstance(result, list) else "Error: Invalid response"
+        except Exception as e:
+            reply = f"Error: {e}"
 
-results = []
+        sentiment = TextBlob(reply).sentiment.polarity
+        length_penalty = abs(len(reply) - 200) / 200
+        final_score = sentiment - length_penalty
 
-for idx, template in enumerate(prompts):
-    filled_prompt = template.format(query=query)
+        results.append({
+            "Prompt #": idx + 1,
+            "Prompt": filled_prompt,
+            "Response": reply,
+            "Sentiment Score": sentiment,
+            "Final Score": final_score
+        })
 
-    # Send request to HF Inference API
-    payload = {"inputs": filled_prompt}
-    try:
-        response = requests.post(API_URL, headers=headers, json=payload)
-        result = response.json()
-        reply = result[0]["generated_text"].strip() if isinstance(result, list) else "Error: Invalid response"
-    except Exception as e:
-        reply = f"Error: {e}"
+    # Find the best prompt based on the highest score
+    best_response = max(results, key=lambda x: x["Final Score"])
+    return best_response["Response"], best_response["Prompt"], best_response["Final Score"]
 
-    sentiment = TextBlob(reply).sentiment.polarity
-    length_penalty = abs(len(reply) - 200) / 200
-    final_score = sentiment - length_penalty
+# Streamlit UI for user input
+def streamlit_ui():
+    st.title("PromptEval: LLM Prompt Tester")
 
-    results.append({
-        "Prompt #": idx + 1,
-        "Prompt": filled_prompt,
-        "Response": reply,
-        "Sentiment Score": sentiment,
-        "Final Score": final_score
-    })
+    # Query input
+    query = st.text_input("Enter your query:")
 
-# Print results
-for r in results:
-    print(f"\nPrompt #{r['Prompt #']}:\n{r['Prompt']}")
-    print(f"Response:\n{r['Response']}")
-    print(f"Sentiment: {r['Sentiment Score']:.2f}, Score: {r['Final Score']:.2f}")
-    print("-" * 50)
+    if query:
+        best_response, best_prompt, score = generate_best_response(query)
+        st.write(f"**Best response for your query**:")
+        st.write(f"**Prompt**: {best_prompt}")
+        st.write(f"**Response**: {best_response}")
+        st.write(f"**Sentiment Score**: {score:.2f}")
+        st.write(f"**Final Score**: {score:.2f}")
 
-# Save to CSV
-df = pd.DataFrame(results)
-df.to_csv("huggingface_responses.csv", index=False)
-print("\n✅ All results saved to huggingface_responses.csv")
+        # Optionally save results to CSV
+        if st.button('Save results to CSV'):
+            df = pd.DataFrame([{
+                "Prompt": best_prompt,
+                "Response": best_response,
+                "Sentiment Score": score,
+                "Final Score": score
+            }])
+            df.to_csv('streamlit_responses.csv', index=False)
+            st.success("Results saved to streamlit_responses.csv")
+
+if __name__ == "__main__":
+    streamlit_ui()
